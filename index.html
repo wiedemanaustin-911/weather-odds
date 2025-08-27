@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Weather Odds — MVP</title>
+  <title>Wet Watch - Precipitation Odds</title>
   <style>
     :root {
       --bg: #0b1020;
@@ -22,14 +22,14 @@
     body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; background: radial-gradient(1200px 600px at 10% 0%, #12193a 0%, var(--bg) 60%); color: var(--text); }
     .wrap { max-width: 900px; margin: 0 auto; padding: 28px 16px 80px; }
     header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-    header h1 { font-size: clamp(18px, 2.8vw, 22px); margin: 0; }
+    header h1 { font-size: clamp(18px, 2.8vw, 24px); margin: 0; }
     header .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--border); padding: 2px 8px; border-radius: 12px; }
     .card { background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.08)); border: 1px solid var(--border); border-radius: 16px; padding: clamp(14px, 3vw, 18px); box-shadow: var(--elev); }
     .grid { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
     @media (min-width: 720px) { .grid { grid-template-columns: 1.2fr 1fr; } }
 
     label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-    input[type="text"], input[type="number"], select { width: 100%; padding: 12px 12px; border: 1px solid var(--border); border-radius: 12px; background: #0f1530; color: var(--text); outline: none; font-size: 16px; /* prevent iOS zoom */ }
+    input[type="text"], input[type="number"], select { width: 100%; padding: 12px 12px; border: 1px solid var(--border); border-radius: 12px; background: #0f1530; color: var(--text); outline: none; font-size: 16px; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
     button { cursor: pointer; background: linear-gradient(180deg, #2b83ff, #1c60c2); color: white; border: none; padding: 12px 16px; border-radius: 12px; font-weight: 600; font-size: 16px; }
@@ -39,27 +39,16 @@
     .kpi { background: #0d1430; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: center; }
     .kpi h3 { margin: 0; font-size: clamp(22px, 5vw, 28px); }
     .kpi p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-    .note { font-size: 12px; color: var(--muted); }
-    .ok { color: var(--ok); }
-    .warn { color: var(--warn); }
-    .err { color: var(--err); }
-
-    /* Typeahead */
-    .typeahead-wrap { position: relative; }
-    .suggestions { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: #0f1530; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); max-height: 260px; overflow: auto; z-index: 40; display: none; }
-    .suggestions .item { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 14px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; }
-    .suggestions .item:hover { background: #12193a; }
-    .suggestions .name { font-size: 15px; }
-    .suggestions .meta { color: var(--muted); font-size: 12px; }
 
     .big-verdict { font-size: clamp(18px, 4.8vw, 20px); font-weight: 700; color: var(--ok); }
 
-    /* Simple dot chart */
-    .dot-chart { display: flex; flex-wrap: wrap; gap: 4px; }
-    .dot { width: 14px; height: 14px; border-radius: 50%; background: #2a335a; border: 1px solid var(--border); }
-    .dot.wet { background: var(--accent); }
-
-    .alt-dates { font-size: 13px; }
+    /* Big info cards */
+    .infogrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    @media (min-width: 720px) { .infogrid { grid-template-columns: 1fr 1fr; } }
+    .info-card { background: #0d1430; border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--elev); }
+    .info-title { margin: 0 0 6px 0; font-size: 14px; color: var(--muted); }
+    .info-main { margin: 0; font-size: clamp(18px, 4vw, 22px); font-weight: 700; }
+    .info-sub { margin: 6px 0 0 0; font-size: 12px; color: var(--muted); }
 
     /* Mobile tweaks */
     @media (max-width: 640px) {
@@ -70,7 +59,6 @@
     }
     @media (max-width: 420px) {
       .kpis { grid-template-columns: 1fr; }
-      .suggestions .item { padding: 16px; }
     }
 
     /* Sticky footer action on tiny screens */
@@ -80,7 +68,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>🌦️ Weather Odds — Rain on a Specific Date</h1>
+      <h1>🌦️ Wet Watch — Precipitation Odds</h1>
       <span class="tag">MVP</span>
     </header>
 
@@ -108,7 +96,7 @@
           <div>
             <label>Years Back</label>
             <input id="years" type="number" min="5" max="70" value="20" inputmode="numeric" />
-            <div class="hint">Uses the last N <em>complete</em> years.</div>
+            <!-- removed explanatory hint per request -->
           </div>
           <div>
             <label>What counts as wet?</label>
@@ -154,9 +142,18 @@
             </div>
           </div>
 
-          <div id="tempInfo" class="note"></div>
-          <div id="dotChart" class="dot-chart"></div>
-          <div id="altDates" class="alt-dates"></div>
+          <div class="infogrid">
+            <div class="info-card">
+              <p class="info-title">Typical Temperatures</p>
+              <p id="tempMain" class="info-main">—</p>
+              <p class="info-sub">Based on the historical average for this date.</p>
+            </div>
+            <div class="info-card">
+              <p class="info-title">Nearby Dates</p>
+              <p id="altMain" class="info-main">—</p>
+              <p class="info-sub">Prev day • This day • Next day</p>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -168,7 +165,7 @@
   </div>
 
   <script>
-    // ===== Month/Day Selectors (ensure they always populate) =====
+    // ===== Month/Day Selectors =====
     const monthSel = document.getElementById('month');
     const daySel = document.getElementById('day');
     const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -195,7 +192,6 @@
       }
       if (parseInt(monthSel.value,10) === 7) daySel.value = '25';
     }
-    // populate on load
     populateMonths();
     repopulateDays();
     monthSel.addEventListener('change', repopulateDays);
@@ -207,10 +203,8 @@
     const kpiPct = document.getElementById('kpiPct');
     const kpiAvg = document.getElementById('kpiAvg');
     const bigVerdictEl = document.getElementById('bigVerdict');
-
-    const tempInfoEl = document.getElementById('tempInfo');
-    const dotChartEl = document.getElementById('dotChart');
-    const altDatesEl = document.getElementById('altDates');
+    const tempMainEl = document.getElementById('tempMain');
+    const altMainEl = document.getElementById('altMain');
 
     const pickerEl = document.getElementById('picker');
     const candidateSelect = document.getElementById('candidateSelect');
@@ -362,30 +356,21 @@
         kpiPct.textContent = `${pct.toFixed(0)}%`;
         kpiAvg.textContent = `${mmToIn(avgOnRainy).toFixed(2)} in`;
 
-        // Temperature context (avg high/low across years)
+        // Temperature card
         const avgHighF = cToF(records.reduce((a,b)=>a+(b.tmax||0),0)/records.length);
         const avgLowF  = cToF(records.reduce((a,b)=>a+(b.tmin||0),0)/records.length);
-        tempInfoEl.innerHTML = `🌡️ Typical temps on this date: <b>${avgHighF.toFixed(0)}°F</b> / <b>${avgLowF.toFixed(0)}°F</b> (historical average)`;
+        tempMainEl.innerHTML = `${avgHighF.toFixed(0)}°F / ${avgLowF.toFixed(0)}°F`;
 
-        // Dot chart (one dot per year)
-        dotChartEl.innerHTML = '';
-        records.sort((a,b)=>a.year-b.year).forEach(r=>{
-          const dot = document.createElement('div');
-          dot.className = 'dot' + (((r.mm||0) >= thresholdMm) ? ' wet' : '');
-          dot.title = `${r.year}: ${mmToIn(r.mm||0).toFixed(2)} in`;
-          dotChartEl.appendChild(dot);
-        });
-
-        // Alternative dates (prev/target/next)
+        // Nearby dates card
         function pctWet(list){ if(!list.length) return null; const c=list.filter(r=> (r.mm||0)>=thresholdMm).length; return (c/list.length)*100; }
         const pPrev = pctWet(prevRecords);
         const pTgt  = pctWet(records);
         const pNext = pctWet(nextRecords);
         const parts=[];
-        if(pPrev!==null) parts.push(`${month}/${prevDay}: ${pPrev.toFixed(0)}% wet`);
-        parts.push(`${month}/${day}: ${pTgt.toFixed(0)}% wet`);
-        if(pNext!==null) parts.push(`${month}/${nextDay}: ${pNext.toFixed(0)}% wet`);
-        altDatesEl.innerHTML = `📅 Nearby dates: ${parts.join(' • ')}`;
+        if(pPrev!==null) parts.push(`${month}/${prevDay}: ${pPrev.toFixed(0)}%`);
+        parts.push(`${month}/${day}: ${pTgt.toFixed(0)}%`);
+        if(pNext!==null) parts.push(`${month}/${nextDay}: ${pNext.toFixed(0)}%`);
+        altMainEl.textContent = parts.join(' • ');
 
         // Big verdict line in green
         let verdictWord = 'Dry likely'; let icon = '🌤️';
@@ -394,7 +379,7 @@
         bigVerdictEl.textContent = `${icon} ${verdictWord}: ${selectedLoc?.name || ''} — ${monthNames[parseInt(month,10)-1]} ${parseInt(day,10)} (${records.length}-year history)`;
         bigVerdictEl.style.display = 'block';
 
-        // Subtle method hint (keep quietly technical for transparency)
+        // Subtle method hint
         statusEl.textContent = `We count a day as wet if it had measurable rain or snow.`;
         resultsEl.style.display = 'grid';
       } catch (err) {
