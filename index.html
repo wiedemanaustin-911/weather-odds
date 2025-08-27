@@ -34,7 +34,7 @@
 
     button { cursor: pointer; background: linear-gradient(180deg, #2b83ff, #1c60c2); color: white; border: none; padding: 12px 16px; border-radius: 12px; font-weight: 600; font-size: 16px; }
     .hint { color: var(--muted); font-size: 12px; }
-    .results { margin-top: 16px; display: grid; gap: 10px; }
+    .results { margin-top: 16px; display: grid; gap: 12px; }
     .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .kpi { background: #0d1430; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: center; }
     .kpi h3 { margin: 0; font-size: clamp(22px, 5vw, 28px); }
@@ -53,6 +53,13 @@
     .suggestions .meta { color: var(--muted); font-size: 12px; }
 
     .big-verdict { font-size: clamp(18px, 4.8vw, 20px); font-weight: 700; color: var(--ok); }
+
+    /* Simple dot chart */
+    .dot-chart { display: flex; flex-wrap: wrap; gap: 4px; }
+    .dot { width: 14px; height: 14px; border-radius: 50%; background: #2a335a; border: 1px solid var(--border); }
+    .dot.wet { background: var(--accent); }
+
+    .alt-dates { font-size: 13px; }
 
     /* Mobile tweaks */
     @media (max-width: 640px) {
@@ -104,9 +111,9 @@
             <div class="hint">Uses the last N <em>complete</em> years.</div>
           </div>
           <div>
-            <label>What counts as precipitation?</label>
+            <label>What counts as wet?</label>
             <input id="threshold" type="hidden" value="0.1" />
-            <div class="hint">We mark the day “wet” if <b>rain or snow (liquid)</b> ≥ <b>0.1 mm</b>.</div>
+            <div class="hint">We count a day as <b>wet</b> if it had <b>measurable rain or snow</b>.</div>
           </div>
         </div>
 
@@ -146,6 +153,10 @@
               <p>Avg on Wet Years</p>
             </div>
           </div>
+
+          <div id="tempInfo" class="note"></div>
+          <div id="dotChart" class="dot-chart"></div>
+          <div id="altDates" class="alt-dates"></div>
         </div>
       </section>
     </div>
@@ -197,6 +208,10 @@
     const kpiAvg = document.getElementById('kpiAvg');
     const bigVerdictEl = document.getElementById('bigVerdict');
 
+    const tempInfoEl = document.getElementById('tempInfo');
+    const dotChartEl = document.getElementById('dotChart');
+    const altDatesEl = document.getElementById('altDates');
+
     const pickerEl = document.getElementById('picker');
     const candidateSelect = document.getElementById('candidateSelect');
     const useCandidateBtn = document.getElementById('useCandidate');
@@ -205,6 +220,7 @@
     const suggestions = document.getElementById('suggestions');
 
     function mmToIn(mm) { return mm / 25.4; }
+    function cToF(c) { return (c * 9/5) + 32; }
 
     // ===== Aliases & Fallback Coordinates =====
     const ALIASES = { 'snowbird': 'Snowbird, Utah, USA','alta': 'Alta, Utah, USA','park city': 'Park City, Utah, USA','deer valley': 'Deer Valley, Utah, USA'};
@@ -285,7 +301,7 @@
       url.searchParams.set('longitude', lon);
       url.searchParams.set('start_date', start);
       url.searchParams.set('end_date', end);
-      url.searchParams.set('daily', 'precipitation_sum');
+      url.searchParams.set('daily', 'precipitation_sum,temperature_2m_max,temperature_2m_min');
       url.searchParams.set('timezone', 'auto');
       return url.toString();
     }
@@ -316,8 +332,26 @@
         const res = await fetch(buildArchiveURL(loc.lat, loc.lon, start, end)); if (!res.ok) throw new Error('Archive API request failed');
         const data = await res.json(); if (!data.daily || !data.daily.time) throw new Error('No daily data returned');
 
-        const times = data.daily.time; const prec = data.daily.precipitation_sum; const targetMD = `-${month}-${day}`; const records = [];
-        for (let i=0; i<times.length; i++) { if (times[i].endsWith(targetMD)) { const y = parseInt(times[i].slice(0,4),10); if (y >= startYear && y <= endYear) { records.push({ year: y, mm: prec[i] ?? 0 }); } } }
+        const times = data.daily.time; 
+        const prec = data.daily.precipitation_sum; 
+        const tmax = data.daily.temperature_2m_max; 
+        const tmin = data.daily.temperature_2m_min; 
+        const targetMD = `-${month}-${day}`; 
+        const prevDay = String(Math.max(1, parseInt(day,10)-1)).padStart(2,'0');
+        const nextDay = String(parseInt(day,10)+1).padStart(2,'0');
+        const mdPrev = `-${month}-${prevDay}`;
+        const mdNext = `-${month}-${nextDay}`;
+        const records = [];
+        const prevRecords = [];
+        const nextRecords = [];
+        for (let i=0; i<times.length; i++) {
+          const y = parseInt(times[i].slice(0,4),10);
+          if (y < startYear || y > endYear) continue;
+          const row = { year: y, mm: prec[i] ?? 0, tmax: tmax[i], tmin: tmin[i] };
+          if (times[i].endsWith(targetMD)) records.push(row);
+          if (times[i].endsWith(mdPrev)) prevRecords.push(row);
+          if (times[i].endsWith(mdNext)) nextRecords.push(row);
+        }
         if (records.length === 0) throw new Error('No matching date records found.');
 
         const rainy = records.filter(r => (r.mm || 0) >= thresholdMm);
@@ -328,15 +362,40 @@
         kpiPct.textContent = `${pct.toFixed(0)}%`;
         kpiAvg.textContent = `${mmToIn(avgOnRainy).toFixed(2)} in`;
 
+        // Temperature context (avg high/low across years)
+        const avgHighF = cToF(records.reduce((a,b)=>a+(b.tmax||0),0)/records.length);
+        const avgLowF  = cToF(records.reduce((a,b)=>a+(b.tmin||0),0)/records.length);
+        tempInfoEl.innerHTML = `🌡️ Typical temps on this date: <b>${avgHighF.toFixed(0)}°F</b> / <b>${avgLowF.toFixed(0)}°F</b> (historical average)`;
+
+        // Dot chart (one dot per year)
+        dotChartEl.innerHTML = '';
+        records.sort((a,b)=>a.year-b.year).forEach(r=>{
+          const dot = document.createElement('div');
+          dot.className = 'dot' + (((r.mm||0) >= thresholdMm) ? ' wet' : '');
+          dot.title = `${r.year}: ${mmToIn(r.mm||0).toFixed(2)} in`;
+          dotChartEl.appendChild(dot);
+        });
+
+        // Alternative dates (prev/target/next)
+        function pctWet(list){ if(!list.length) return null; const c=list.filter(r=> (r.mm||0)>=thresholdMm).length; return (c/list.length)*100; }
+        const pPrev = pctWet(prevRecords);
+        const pTgt  = pctWet(records);
+        const pNext = pctWet(nextRecords);
+        const parts=[];
+        if(pPrev!==null) parts.push(`${month}/${prevDay}: ${pPrev.toFixed(0)}% wet`);
+        parts.push(`${month}/${day}: ${pTgt.toFixed(0)}% wet`);
+        if(pNext!==null) parts.push(`${month}/${nextDay}: ${pNext.toFixed(0)}% wet`);
+        altDatesEl.innerHTML = `📅 Nearby dates: ${parts.join(' • ')}`;
+
         // Big verdict line in green
         let verdictWord = 'Dry likely'; let icon = '🌤️';
         if (pct >= 50) { verdictWord = 'Precip likely'; icon = '🌧️'; }
         else if (pct >= 25) { verdictWord = 'Precip possible'; icon = '🌦️'; }
-        bigVerdictEl.textContent = `${icon} ${verdictWord}: ${loc.name} — ${monthNames[parseInt(month,10)-1]} ${parseInt(day,10)} (${records.length}-year history)`;
+        bigVerdictEl.textContent = `${icon} ${verdictWord}: ${selectedLoc?.name || ''} — ${monthNames[parseInt(month,10)-1]} ${parseInt(day,10)} (${records.length}-year history)`;
         bigVerdictEl.style.display = 'block';
 
-        // Subtle method hint
-        statusEl.textContent = `Based on daily precipitation ≥ 0.1 mm.`;
+        // Subtle method hint (keep quietly technical for transparency)
+        statusEl.textContent = `We count a day as wet if it had measurable rain or snow.`;
         resultsEl.style.display = 'grid';
       } catch (err) {
         statusEl.innerHTML = `<span class="err">${err.message}</span>`;
@@ -354,4 +413,3 @@
   </script>
 </body>
 </html>
-
