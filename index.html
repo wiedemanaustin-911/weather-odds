@@ -16,25 +16,28 @@
       --err: #ff9aa2;
       --border: #233058;
       --elev: 0 10px 30px rgba(0,0,0,0.2);
+      --gap: 12px;
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; background: radial-gradient(1200px 600px at 10% 0%, #12193a 0%, var(--bg) 60%); color: var(--text); }
-    .wrap { max-width: 900px; margin: 0 auto; padding: 28px 16px 60px; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 28px 16px 80px; }
     header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-    header h1 { font-size: 22px; margin: 0; }
+    header h1 { font-size: clamp(18px, 2.8vw, 22px); margin: 0; }
     header .tag { font-size: 12px; color: var(--muted); border: 1px solid var(--border); padding: 2px 8px; border-radius: 12px; }
-    .card { background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.08)); border: 1px solid var(--border); border-radius: 16px; padding: 18px; box-shadow: var(--elev); }
-    .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .card { background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.08)); border: 1px solid var(--border); border-radius: 16px; padding: clamp(14px, 3vw, 18px); box-shadow: var(--elev); }
+    .grid { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
     @media (min-width: 720px) { .grid { grid-template-columns: 1.2fr 1fr; } }
+
     label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-    input[type="text"], input[type="number"], select { width: 100%; padding: 12px 12px; border: 1px solid var(--border); border-radius: 12px; background: #0f1530; color: var(--text); outline: none; }
+    input[type="text"], input[type="number"], select { width: 100%; padding: 12px 12px; border: 1px solid var(--border); border-radius: 12px; background: #0f1530; color: var(--text); outline: none; font-size: 16px; /* prevent iOS zoom */ }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    button { cursor: pointer; background: linear-gradient(180deg, #2b83ff, #1c60c2); color: white; border: none; padding: 12px 16px; border-radius: 12px; font-weight: 600; }
+
+    button { cursor: pointer; background: linear-gradient(180deg, #2b83ff, #1c60c2); color: white; border: none; padding: 12px 16px; border-radius: 12px; font-weight: 600; font-size: 16px; }
     .hint { color: var(--muted); font-size: 12px; }
     .results { margin-top: 16px; display: grid; gap: 10px; }
     .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .kpi { background: #0d1430; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: center; }
-    .kpi h3 { margin: 0; font-size: 28px; }
+    .kpi h3 { margin: 0; font-size: clamp(22px, 5vw, 28px); }
     .kpi p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
     .note { font-size: 12px; color: var(--muted); }
     .ok { color: var(--ok); }
@@ -43,13 +46,28 @@
 
     /* Typeahead */
     .typeahead-wrap { position: relative; }
-    .suggestions { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: #0f1530; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); max-height: 220px; overflow: auto; z-index: 40; display: none; }
-    .suggestions .item { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; }
+    .suggestions { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: #0f1530; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); max-height: 260px; overflow: auto; z-index: 40; display: none; }
+    .suggestions .item { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 14px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; }
     .suggestions .item:hover { background: #12193a; }
-    .suggestions .name { font-size: 14px; }
+    .suggestions .name { font-size: 15px; }
     .suggestions .meta { color: var(--muted); font-size: 12px; }
 
-    .big-verdict { font-size: 20px; font-weight: 700; color: var(--ok); }
+    .big-verdict { font-size: clamp(18px, 4.8vw, 20px); font-weight: 700; color: var(--ok); }
+
+    /* Mobile tweaks */
+    @media (max-width: 640px) {
+      .row { grid-template-columns: 1fr; }
+      .kpis { grid-template-columns: 1fr 1fr; }
+      button { width: 100%; }
+      .wrap { padding-bottom: 100px; }
+    }
+    @media (max-width: 420px) {
+      .kpis { grid-template-columns: 1fr; }
+      .suggestions .item { padding: 16px; }
+    }
+
+    /* Sticky footer action on tiny screens */
+    .sticky-actions { position: sticky; bottom: 0; background: linear-gradient(180deg, rgba(11,16,32,0), rgba(11,16,32,0.9) 30%); padding-top: 10px; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -82,7 +100,7 @@
         <div class="row" style="margin-top:10px">
           <div>
             <label>Years Back</label>
-            <input id="years" type="number" min="5" max="70" value="20" />
+            <input id="years" type="number" min="5" max="70" value="20" inputmode="numeric" />
             <div class="hint">Uses the last N <em>complete</em> years.</div>
           </div>
           <div>
@@ -92,7 +110,7 @@
           </div>
         </div>
 
-        <div style="display:flex; gap:10px; margin-top:14px">
+        <div class="sticky-actions">
           <button id="go">Check Odds</button>
         </div>
 
@@ -188,7 +206,7 @@
 
     function mmToIn(mm) { return mm / 25.4; }
 
-    // ===== Aliases & Fallback Coordinates (kept minimal) =====
+    // ===== Aliases & Fallback Coordinates =====
     const ALIASES = { 'snowbird': 'Snowbird, Utah, USA','alta': 'Alta, Utah, USA','park city': 'Park City, Utah, USA','deer valley': 'Deer Valley, Utah, USA'};
     const FALLBACK_COORDS = { 'snowbird, utah, usa': { lat: 40.582, lon: -111.657, name: 'Snowbird, Utah, USA' }, 'alta, utah, usa': { lat: 40.588, lon: -111.637, name: 'Alta, Utah, USA' } };
 
@@ -317,7 +335,7 @@
         bigVerdictEl.textContent = `${icon} ${verdictWord}: ${loc.name} — ${monthNames[parseInt(month,10)-1]} ${parseInt(day,10)} (${records.length}-year history)`;
         bigVerdictEl.style.display = 'block';
 
-        // Replace status line with a subtle hint instead of green "Done"
+        // Subtle method hint
         statusEl.textContent = `Based on daily precipitation ≥ 0.1 mm.`;
         resultsEl.style.display = 'grid';
       } catch (err) {
