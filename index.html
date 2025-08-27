@@ -41,22 +41,21 @@
     .kpi { background: #0d1430; border: 1px solid var(--border); border-radius: 12px; padding: 14px; text-align: center; }
     .kpi h3 { margin: 0; font-size: 28px; }
     .kpi p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-    .years { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; line-height: 1.6; color: var(--muted); background: #0d1430; border: 1px dashed var(--border); border-radius: 12px; padding: 12px; max-height: 200px; overflow: auto; }
     .note { font-size: 12px; color: var(--muted); }
     .ok { color: var(--ok); }
     .warn { color: var(--warn); }
     .err { color: var(--err); }
 
-    /* Typeahead */
     .typeahead-wrap { position: relative; }
     .suggestions {
       position: absolute; top: calc(100% + 6px); left: 0; right: 0;
       background: #0f1530; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev);
       max-height: 220px; overflow: auto; z-index: 40; display: none;
     }
-    .suggestions button { width: 100%; text-align: left; background: transparent; border: none; color: var(--text); padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
-    .suggestions button:hover, .suggestions button:focus { background: #12193a; }
-    .suggestions .meta { color: var(--muted); font-size: 12px; margin-left: 6px; }
+    .suggestions .item { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; }
+    .suggestions .item:hover { background: #12193a; }
+    .suggestions .name { font-size: 14px; }
+    .suggestions .meta { color: var(--muted); font-size: 12px; }
   </style>
 </head>
 <body>
@@ -95,20 +94,19 @@
           <div>
             <label>What counts as precipitation?</label>
             <input id="threshold" type="hidden" value="0.1" />
-            <div class="hint">Counts <b>any rain or snow</b> with liquid equivalent ≥ <b>0.1 mm</b>. (Simple, clear: “Was there precip or not?”)</div>
+            <div class="hint">We mark the day “wet” if <b>rain or snow (liquid)</b> ≥ <b>0.1 mm</b>.</div>
           </div>
         </div>
 
         <div style="display:flex; gap:10px; margin-top:14px">
           <button id="go">Check Odds</button>
-          <button class="secondary" id="demo">Try Demo (Snowbird • Jul 25 • 20y)</button>
         </div>
 
         <p class="note" style="margin-top:12px">Powered by Open‑Meteo Historical Weather & Geocoding (free, no key). We use <b>daily precipitation (rain + snow water equivalent)</b> from ERA5‑Land.</p>
       </section>
 
       <section class="card">
-        <h2 style="margin-top:0">2) Result</h2>
+        <h2 style="margin-top:0">Will it Rain?</h2>
         <div id="status" class="hint">Enter a location and hit <b>Check Odds</b>.</div>
 
         <div id="picker" style="display:none; margin:10px 0;">
@@ -134,27 +132,22 @@
               <p>Avg on Wet Years</p>
             </div>
           </div>
-
-          <div class="years" id="yearsList"></div>
-          <div class="note">We mark a year as “wet” if precipitation (rain or snow water equivalent) ≥ 0.1 mm on the chosen date.</div>
         </div>
       </section>
     </div>
 
     <section class="card" style="margin-top:12px">
       <h2 style="margin-top:0">About this MVP</h2>
-      <p class="note">This tool fetches daily precipitation for a range of years and counts how many target dates met the threshold. Data is from the Open‑Meteo Archive API (ERA5‑Land, 10 km grid). For exact station observations (e.g., SNOTEL), you can integrate those later.</p>
+      <p class="note">This tool fetches daily precipitation for a range of years and counts how many target dates met the threshold. Data is from the Open‑Meteo Archive API (ERA5‑Land, 10 km grid). For exact station observations, you can layer SNOTEL/Meteostat later.</p>
     </section>
   </div>
 
   <script>
-    // ===== Month/Day Selectors (Month names instead of numbers) =====
     const monthSel = document.getElementById('month');
     const daySel = document.getElementById('day');
     const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
     monthNames.forEach((m,i)=>{
       const opt = document.createElement('option');
-      // store 01..12 in value, but show full month name
       opt.value = String(i+1).padStart(2,'0');
       opt.textContent = m;
       monthSel.appendChild(opt);
@@ -162,7 +155,7 @@
     monthSel.value = '07';
 
     function repopulateDays() {
-      const year = 2024; // leap-safe calendar reference
+      const year = 2024;
       const month = parseInt(monthSel.value, 10)-1;
       const daysInMonth = new Date(year, month+1, 0).getDate();
       daySel.innerHTML = '';
@@ -177,10 +170,8 @@
     monthSel.addEventListener('change', repopulateDays);
     repopulateDays();
 
-    // ===== Elements =====
     const statusEl = document.getElementById('status');
     const resultsEl = document.getElementById('results');
-    const yearsListEl = document.getElementById('yearsList');
     const kpiCount = document.getElementById('kpiCount');
     const kpiPct = document.getElementById('kpiPct');
     const kpiAvg = document.getElementById('kpiAvg');
@@ -194,19 +185,20 @@
 
     function mmToIn(mm) { return mm / 25.4; }
 
-    // Simple aliases for well-known Utah ski areas
     const ALIASES = {
       'snowbird': 'Snowbird, Utah, USA',
       'alta': 'Alta, Utah, USA',
       'park city': 'Park City, Utah, USA',
       'deer valley': 'Deer Valley, Utah, USA'
     };
+    const FALLBACK_COORDS = {
+      'snowbird, utah, usa': { lat: 40.582, lon: -111.657, name: 'Snowbird, Utah, USA' },
+      'alta, utah, usa':     { lat: 40.588, lon: -111.637, name: 'Alta, Utah, USA' }
+    };
 
-    // Keep a selected location (lat/lon) when user picks from suggestions
-    let selectedLoc = null; // {lat, lon, name}
+    let selectedLoc = null;
 
-    // ===== Geocoding Helpers =====
-    async function geocodeQuery(name, count=5) {
+    async function geocodeQuery(name, count=6) {
       const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
       url.searchParams.set('name', name);
       url.searchParams.set('count', String(count));
@@ -217,62 +209,73 @@
       return data.results || [];
     }
 
-    function asLabel(r) {
-      return [r.name, r.admin1, r.country].filter(Boolean).join(', ');
+    async function resolveCandidates(input) {
+      let q = input.trim();
+      const key = q.toLowerCase();
+      const tries = [];
+
+      if (ALIASES[key]) tries.push(ALIASES[key]);
+      tries.push(q);
+      if (!/,/.test(q)) {
+        tries.push(q + ', Utah');
+        tries.push(q + ', Utah, USA');
+        tries.push(q + ', United States');
+        tries.push(q + ' Ski Resort, Utah, USA');
+      }
+      const uniq = [...new Set(tries)];
+
+      for (const t of uniq) {
+        const res = await geocodeQuery(t, 8);
+        if (res.length) return res;
+      }
+
+      const fb = FALLBACK_COORDS[(ALIASES[key] || q).toLowerCase()];
+      if (fb) {
+        return [{ name: fb.name.split(',')[0], admin1: 'Utah', country: 'United States', latitude: fb.lat, longitude: fb.lon }];
+      }
+      return [];
     }
 
-    function showCandidatePicker(list) {
-      candidateSelect.innerHTML = '';
-      list.forEach((r, idx) => {
-        const opt = document.createElement('option');
-        opt.value = String(idx);
-        opt.textContent = asLabel(r);
-        candidateSelect.appendChild(opt);
-      });
-      pickerEl.style.display = 'block';
-    }
-    function hideCandidatePicker() { pickerEl.style.display = 'none'; }
+    function asLabel(r) { return [r.name, r.admin1, r.country].filter(Boolean).join(', '); }
 
-    // ===== Typeahead (search-as-you-type) =====
     function clearSuggestions() { suggestions.innerHTML = ''; suggestions.style.display = 'none'; }
     function renderSuggestions(items) {
       suggestions.innerHTML = '';
       items.forEach((r) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.innerHTML = `${r.name} <span class="meta">${[r.admin1, r.country].filter(Boolean).join(', ')}</span>`;
-        btn.onclick = () => {
+        const row = document.createElement('div');
+        row.className = 'item';
+        row.innerHTML = `<span class="name">${r.name}</span> <span class="meta">${[r.admin1, r.country].filter(Boolean).join(', ')}</span>`;
+        row.onclick = () => {
           selectedLoc = { lat: r.latitude, lon: r.longitude, name: asLabel(r) };
           placeInput.value = selectedLoc.name;
           clearSuggestions();
         };
-        suggestions.appendChild(btn);
+        suggestions.appendChild(row);
       });
       suggestions.style.display = items.length ? 'block' : 'none';
     }
 
     let debounceTimer = null;
     placeInput.addEventListener('input', async (e) => {
-      const q = e.target.value.trim();
-      selectedLoc = null; // typing cancels prior selection
-      if (!q) { clearSuggestions(); return; }
+      const raw = e.target.value.trim();
+      selectedLoc = null;
+      if (!raw) { clearSuggestions(); return; }
 
-      const key = q.toLowerCase();
-      if (ALIASES[key]) {
-        // snap to alias immediately
-        placeInput.value = ALIASES[key];
-      }
+      const key = raw.toLowerCase();
+      const seed = FALLBACK_COORDS[(ALIASES[key] || raw).toLowerCase()];
 
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
         try {
-          const results = await geocodeQuery(placeInput.value, 6);
-          renderSuggestions(results);
+          const list = await resolveCandidates(raw);
+          if (seed && !list.find(x => asLabel(x).toLowerCase() === seed.name.toLowerCase())) {
+            list.unshift({ name: seed.name.split(',')[0], admin1: 'Utah', country: 'United States', latitude: seed.lat, longitude: seed.lon });
+          }
+          renderSuggestions(list);
         } catch(err) { clearSuggestions(); }
       }, 250);
     });
 
-    // Hide suggestions when clicking outside
     document.addEventListener('click', (ev) => {
       if (!ev.target.closest('.typeahead-wrap')) clearSuggestions();
     });
@@ -289,118 +292,27 @@
     }
 
     function lastCompleteYears(n) {
-      const endYear = new Date().getFullYear() - 1; // exclude partial current year
+      const endYear = new Date().getFullYear() - 1;
       const startYear = endYear - (n - 1);
       return { startYear, endYear };
     }
 
     async function run(query, month, day, nYears, thresholdMm) {
       resultsEl.style.display = 'none';
-      hideCandidatePicker();
       clearSuggestions();
       statusEl.textContent = 'Resolving location…';
       try {
         let loc = selectedLoc;
         if (!loc) {
-          // If no selection from typeahead, try alias or direct geocode; offer picker if many
-          let q = query.trim();
-          const key = q.toLowerCase();
-          if (ALIASES[key]) q = ALIASES[key];
-          const candidates = await geocodeQuery(q, 6);
-          if (!candidates || candidates.length === 0) throw new Error('No matching location found. Try adding state/country.');
+          const candidates = await resolveCandidates(query);
+          if (!candidates || !candidates.length) throw new Error('No matching location found. Try adding state/country.');
           if (candidates.length === 1) {
             const r = candidates[0];
             loc = { lat: r.latitude, lon: r.longitude, name: asLabel(r) };
           } else {
-            showCandidatePicker(candidates);
-            statusEl.textContent = 'Multiple locations found — pick one.';
-            await new Promise((resolve) => {
-              useCandidateBtn.onclick = () => {
-                const idx = parseInt(candidateSelect.value, 10) || 0;
-                const chosen = candidates[idx];
-                loc = { lat: chosen.latitude, lon: chosen.longitude, name: asLabel(chosen) };
-                hideCandidatePicker();
-                resolve();
-              };
-            });
-          }
-        }
-
-        statusEl.textContent = `Using ${loc.name}. Fetching historical daily precipitation…`;
-
-        const { startYear, endYear } = lastCompleteYears(nYears);
-        const start = `${startYear}-${month}-01`;
-        const end = `${endYear}-${month}-31`;
-        const url = buildArchiveURL(loc.lat, loc.lon, start, end);
-
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('Archive API request failed');
-        const data = await res.json();
-        if (!data.daily || !data.daily.time) throw new Error('No daily data returned');
-
-        const times = data.daily.time;
-        const prec = data.daily.precipitation_sum;
-
-        const targetMD = `-${month}-${day}`;
-        const records = [];
-        for (let i=0; i<times.length; i++) {
-          if (times[i].endsWith(targetMD)) {
-            const y = parseInt(times[i].slice(0,4), 10);
-            if (y >= startYear && y <= endYear) {
-              records.push({ year: y, mm: prec[i] ?? 0 });
-            }
-          }
-        }
-
-        if (records.length === 0) throw new Error('No matching date records found.');
-
-        const rainy = records.filter(r => (r.mm || 0) >= thresholdMm);
-        const count = rainy.length;
-        const pct = (count / records.length) * 100;
-        const avgOnRainy = rainy.length ? (rainy.reduce((a,b)=>a+b.mm,0) / rainy.length) : 0;
-
-        kpiCount.textContent = `${count} / ${records.length}`;
-        kpiPct.textContent = `${pct.toFixed(0)}%`;
-        kpiAvg.textContent = `${avgOnRainy.toFixed(2)} mm (${mmToIn(avgOnRainy).toFixed(2)} in)`;
-
-        const lines = records.map(r => {
-          const mark = (r.mm >= thresholdMm) ? '☔' : '·';
-          const ins = mmToIn(r.mm).toFixed(2);
-          const mm = r.mm.toFixed(2);
-          return `${mark} ${r.year}: ${mm} mm (${ins} in)`;
-        });
-        yearsListEl.textContent = lines.join('\n');
-
-        // A simple, human verdict for the user
-        let verdict = 'Dry likely';
-        if (pct >= 50) verdict = 'Precip likely';
-        else if (pct >= 25) verdict = 'Precip possible';
-        statusEl.innerHTML = `<span class="ok">${verdict}:</span> ${loc.name} • ${monthNames[parseInt(month,10)-1]} ${parseInt(day,10)} • ${startYear}–${endYear}`;
-        resultsEl.style.display = 'grid';
-      } catch (err) {
-        statusEl.innerHTML = `<span class="err">${err.message}</span>`;
-        resultsEl.style.display = 'none';
-      }
-    }
-
-    document.getElementById('go').addEventListener('click', () => {
-      const q = placeInput.value.trim();
-      const m = monthSel.value;
-      const d = daySel.value;
-      const n = Math.max(5, Math.min(70, parseInt(document.getElementById('years').value, 10) || 20));
-      const threshold = parseFloat(document.getElementById('threshold').value || '0.1');
-      run(q, m, d, n, threshold);
-    });
-
-    document.getElementById('demo').addEventListener('click', () => {
-      placeInput.value = 'Snowbird, Utah';
-      selectedLoc = null;
-      monthSel.value = '07'; repopulateDays(); daySel.value = '25';
-      document.getElementById('years').value = '20';
-      document.getElementById('threshold').value = '0.1';
-      document.getElementById('go').click();
-    });
-  </script>
-</body>
-</html>
-
+            const select = document.getElementById('candidateSelect');
+            select.innerHTML = '';
+            candidates.forEach((r, idx) => {
+              const opt = document.createElement('option');
+              opt.value = String(idx);
+             
