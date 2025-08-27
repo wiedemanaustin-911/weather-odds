@@ -41,6 +41,7 @@
     .warn { color: var(--warn); }
     .err { color: var(--err); }
 
+    /* Typeahead */
     .typeahead-wrap { position: relative; }
     .suggestions { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: #0f1530; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--elev); max-height: 220px; overflow: auto; z-index: 40; display: none; }
     .suggestions .item { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; }
@@ -63,7 +64,7 @@
         <h2 style="margin-top:0">1) Pick a place & date</h2>
         <label>Location (city, resort, venue)</label>
         <div class="typeahead-wrap">
-          <input id="place" type="text" placeholder="e.g., Snowbird, Utah" value="" autocomplete="off" />
+          <input id="place" type="text" placeholder="e.g., Los Angeles, California" value="" autocomplete="off" />
           <div id="suggestions" class="suggestions"></div>
         </div>
 
@@ -138,7 +139,7 @@
   </div>
 
   <script>
-    // ===== Month/Day Selectors =====
+    // ===== Month/Day Selectors (ensure they always populate) =====
     const monthSel = document.getElementById('month');
     const daySel = document.getElementById('day');
     const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -153,7 +154,7 @@
       monthSel.value = '07';
     }
     function repopulateDays() {
-      const year = 2024;
+      const year = 2024; // leap-safe reference
       const month = parseInt(monthSel.value, 10)-1;
       const daysInMonth = new Date(year, month+1, 0).getDate();
       daySel.innerHTML = '';
@@ -165,10 +166,12 @@
       }
       if (parseInt(monthSel.value,10) === 7) daySel.value = '25';
     }
+    // populate on load
     populateMonths();
     repopulateDays();
     monthSel.addEventListener('change', repopulateDays);
 
+    // ===== Elements =====
     const statusEl = document.getElementById('status');
     const resultsEl = document.getElementById('results');
     const kpiCount = document.getElementById('kpiCount');
@@ -185,11 +188,13 @@
 
     function mmToIn(mm) { return mm / 25.4; }
 
+    // ===== Aliases & Fallback Coordinates (kept minimal) =====
     const ALIASES = { 'snowbird': 'Snowbird, Utah, USA','alta': 'Alta, Utah, USA','park city': 'Park City, Utah, USA','deer valley': 'Deer Valley, Utah, USA'};
-    const FALLBACK_COORDS = { 'snowbird, utah, usa': { lat: 40.582, lon: -111.657, name: 'Snowbird, Utah, USA' }, 'alta, utah, usa': { lat: 40.588, lon: -111.637, name: 'Alta, Utah, USA' }};
+    const FALLBACK_COORDS = { 'snowbird, utah, usa': { lat: 40.582, lon: -111.657, name: 'Snowbird, Utah, USA' }, 'alta, utah, usa': { lat: 40.588, lon: -111.637, name: 'Alta, Utah, USA' } };
 
-    let selectedLoc = null;
+    let selectedLoc = null; // {lat, lon, name}
 
+    // ===== Geocoding helpers =====
     async function geocodeQuery(name, count=6) {
       const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
       url.searchParams.set('name', name);
@@ -206,7 +211,7 @@
       const tries = [];
       if (ALIASES[key]) tries.push(ALIASES[key]);
       tries.push(q);
-      if (!/,/.test(q)) {
+      if (!/,/.test(q)) { // add region guesses when not specified
         tries.push(q + ', Utah');
         tries.push(q + ', Utah, USA');
         tries.push(q + ', United States');
@@ -218,19 +223,26 @@
         if (res.length) return res;
       }
       const fb = FALLBACK_COORDS[(ALIASES[key] || q).toLowerCase()];
-      if (fb) { return [{ name: fb.name.split(',')[0], admin1: 'Utah', country: 'United States', latitude: fb.lat, longitude: fb.lon }]; }
+      if (fb) {
+        return [{ name: fb.name.split(',')[0], admin1: 'Utah', country: 'United States', latitude: fb.lat, longitude: fb.lon }];
+      }
       return [];
     }
     function asLabel(r) { return [r.name, r.admin1, r.country].filter(Boolean).join(', '); }
 
+    // ===== Typeahead (search-as-you-type) =====
     function clearSuggestions() { suggestions.innerHTML = ''; suggestions.style.display = 'none'; }
     function renderSuggestions(items) {
       suggestions.innerHTML = '';
       items.forEach((r) => {
         const row = document.createElement('div');
         row.className = 'item';
-        row.innerHTML = `<span class=\"name\">${r.name}</span> <span class=\"meta\">${[r.admin1, r.country].filter(Boolean).join(', ')}</span>`;
-        row.onclick = () => { selectedLoc = { lat: r.latitude, lon: r.longitude, name: asLabel(r) }; placeInput.value = selectedLoc.name; clearSuggestions(); };
+        row.innerHTML = `<span class="name">${r.name}</span> <span class="meta">${[r.admin1, r.country].filter(Boolean).join(', ')}</span>`;
+        row.onclick = () => {
+          selectedLoc = { lat: r.latitude, lon: r.longitude, name: asLabel(r) };
+          placeInput.value = selectedLoc.name;
+          clearSuggestions();
+        };
         suggestions.appendChild(row);
       });
       suggestions.style.display = items.length ? 'block' : 'none';
@@ -238,15 +250,17 @@
     let debounceTimer = null;
     placeInput.addEventListener('input', (e) => {
       const raw = e.target.value.trim();
-      selectedLoc = null;
+      selectedLoc = null; // typing cancels prior selection
       if (!raw) { clearSuggestions(); return; }
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
         try { renderSuggestions(await resolveCandidates(raw)); } catch(err) { clearSuggestions(); }
       }, 250);
     });
+    // Hide suggestions when clicking outside
     document.addEventListener('click', (ev) => { if (!ev.target.closest('.typeahead-wrap')) clearSuggestions(); });
 
+    // ===== Archive fetch & compute =====
     function buildArchiveURL(lat, lon, start, end) {
       const url = new URL('https://archive-api.open-meteo.com/v1/archive');
       url.searchParams.set('latitude', lat);
@@ -276,5 +290,49 @@
             pickerEl.style.display = 'block'; statusEl.textContent = 'Multiple locations found — pick one.';
             await new Promise((resolve) => { useCandidateBtn.onclick = () => { const idx = parseInt(select.value, 10) || 0; const c = candidates[idx]; loc = { lat: c.latitude, lon: c.longitude, name: asLabel(c) }; pickerEl.style.display = 'none'; resolve(); }; });
           }
+        }
 
+        statusEl.textContent = `Fetching historical daily precipitation for ${loc.name}…`;
+        const { startYear, endYear } = lastCompleteYears(nYears);
+        const start = `${startYear}-${month}-01`; const end = `${endYear}-${month}-31`;
+        const res = await fetch(buildArchiveURL(loc.lat, loc.lon, start, end)); if (!res.ok) throw new Error('Archive API request failed');
+        const data = await res.json(); if (!data.daily || !data.daily.time) throw new Error('No daily data returned');
 
+        const times = data.daily.time; const prec = data.daily.precipitation_sum; const targetMD = `-${month}-${day}`; const records = [];
+        for (let i=0; i<times.length; i++) { if (times[i].endsWith(targetMD)) { const y = parseInt(times[i].slice(0,4),10); if (y >= startYear && y <= endYear) { records.push({ year: y, mm: prec[i] ?? 0 }); } } }
+        if (records.length === 0) throw new Error('No matching date records found.');
+
+        const rainy = records.filter(r => (r.mm || 0) >= thresholdMm);
+        const count = rainy.length; const pct = (count / records.length) * 100; const avgOnRainy = rainy.length ? (rainy.reduce((a,b)=>a+b.mm,0) / rainy.length) : 0;
+
+        // KPIs (inches only for avg)
+        kpiCount.textContent = `${count} / ${records.length}`;
+        kpiPct.textContent = `${pct.toFixed(0)}%`;
+        kpiAvg.textContent = `${mmToIn(avgOnRainy).toFixed(2)} in`;
+
+        // Big verdict line in green
+        let verdictWord = 'Dry likely'; let icon = '🌤️';
+        if (pct >= 50) { verdictWord = 'Precip likely'; icon = '🌧️'; }
+        else if (pct >= 25) { verdictWord = 'Precip possible'; icon = '🌦️'; }
+        bigVerdictEl.textContent = `${icon} ${verdictWord}: ${loc.name} — ${monthNames[parseInt(month,10)-1]} ${parseInt(day,10)} (${records.length}-year history)`;
+        bigVerdictEl.style.display = 'block';
+
+        // Replace status line with a subtle hint instead of green "Done"
+        statusEl.textContent = `Based on daily precipitation ≥ 0.1 mm.`;
+        resultsEl.style.display = 'grid';
+      } catch (err) {
+        statusEl.innerHTML = `<span class="err">${err.message}</span>`;
+        resultsEl.style.display = 'none'; bigVerdictEl.style.display = 'none';
+      }
+    }
+
+    // ===== Handlers =====
+    document.getElementById('go').addEventListener('click', () => {
+      const q = placeInput.value.trim();
+      const m = monthSel.value; const d = daySel.value; const n = Math.max(5, Math.min(70, parseInt(document.getElementById('years').value, 10) || 20));
+      const threshold = parseFloat(document.getElementById('threshold').value || '0.1');
+      run(q, m, d, n, threshold);
+    });
+  </script>
+</body>
+</html>
