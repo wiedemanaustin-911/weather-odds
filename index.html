@@ -89,6 +89,17 @@
           </div>
         </div>
 
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label><input id="biasUS" type="checkbox" checked /> Prefer United States</label>
+            <div class="hint">Filters geocoding results to US when possible.</div>
+          </div>
+          <div>
+            <label><input id="biasUtah" type="checkbox" checked /> Prefer Utah</label>
+            <div class="hint">If ambiguous (e.g., Alta), prefer Utah matches.</div>
+          </div>
+        </div>
+
         <div style="display:flex; gap:10px; margin-top:14px">
           <button id="go">Check Odds</button>
           <button class="secondary" id="demo">Try Demo (Snowbird • Jul 25 • 20y)</button>
@@ -100,6 +111,15 @@
       <section class="card">
         <h2 style="margin-top:0">2) Result</h2>
         <div id="status" class="hint">Enter a location and hit <b>Check Odds</b>.</div>
+
+        <div id="picker" style="display:none; margin:10px 0;">
+          <label>Did you mean:</label>
+          <div class="row">
+            <select id="candidateSelect"></select>
+            <button id="useCandidate">Use this location</button>
+          </div>
+          <div class="hint">Tip: You can type "Alta, Utah" or enable the Utah/US bias above.</div>
+        </div>
 
         <div class="results" id="results" style="display:none">
           <div class="kpis">
@@ -165,23 +185,92 @@
     const kpiPct = document.getElementById('kpiPct');
     const kpiAvg = document.getElementById('kpiAvg');
 
+    const pickerEl = document.getElementById('picker');
+    const candidateSelect = document.getElementById('candidateSelect');
+    const useCandidateBtn = document.getElementById('useCandidate');
+
+    const biasUS = document.getElementById('biasUS');
+    const biasUtah = document.getElementById('biasUtah');
+
     function mmToIn(mm) { return mm / 25.4; }
 
-    async function geocode(query) {
+    const ALIASES = {
+      'snowbird': 'Snowbird, Utah, USA',
+      'snowbird, utah': 'Snowbird, Utah, USA',
+      'alta': 'Alta, Utah, USA',
+      'park city': 'Park City, Utah, USA',
+      'deer valley': 'Deer Valley, Utah, USA'
+    };
+
+    async function geocodeMulti(query) {
+      // Try aliases first for common ski areas
+      const key = query.trim().toLowerCase();
+      if (ALIASES[key]) query = ALIASES[key];
+
       const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
       url.searchParams.set('name', query);
-      url.searchParams.set('count', '1');
+      url.searchParams.set('count', '10');
       url.searchParams.set('language', 'en');
+
       const res = await fetch(url);
       if (!res.ok) throw new Error('Geocoding failed');
       const data = await res.json();
-      if (!data.results || data.results.length === 0) throw new Error('No matching location found');
-      const r = data.results[0];
-      return { lat: r.latitude, lon: r.longitude, name: `${r.name}${r.admin1 ? ', '+r.admin1 : ''}${r.country ? ', '+r.country : ''}` };
+      let results = data.results || [];
+
+      // If nothing found and user didn't specify country/state, try sensible fallbacks
+      if (results.length === 0) {
+        const trials = [
+          query + ', Utah',
+          query + ', Utah, USA',
+          query + ' Ski Resort, Utah, USA'
+        ];
+        for (const t of trials) {
+          const u = new URL('https://geocoding-api.open-meteo.com/v1/search');
+          u.searchParams.set('name', t);
+          u.searchParams.set('count', '10');
+          u.searchParams.set('language', 'en');
+          const r2 = await fetch(u);
+          if (r2.ok) {
+            const d2 = await r2.json();
+            if (d2.results && d2.results.length) { results = d2.results; break; }
+          }
+        }
+      }
+
+      // Optional biases
+      if (biasUS.checked) {
+        results = results.filter(r => r.country_code === 'US');
+      }
+      if (biasUtah.checked) {
+        const utahOnes = results.filter(r => (r.admin1 || '').toLowerCase().includes('utah'));
+        if (utahOnes.length) results = utahOnes;
+      }
+      return results;
+    }
+
+    function showCandidatePicker(list) {
+      candidateSelect.innerHTML = '';
+      list.forEach((r, idx) => {
+        const opt = document.createElement('option');
+        const parts = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
+        opt.value = String(idx);
+        opt.textContent = parts + `  (lat ${r.latitude.toFixed(3)}, lon ${r.longitude.toFixed(3)})`;
+        candidateSelect.appendChild(opt);
+      });
+      pickerEl.style.display = 'block';
+    }
+
+    function hideCandidatePicker() {
+      pickerEl.style.display = 'none';
+    }
+
+    function lastCompleteYears(n) {
+      const endYear = new Date().getFullYear() - 1; // exclude incomplete current year
+      const startYear = endYear - (n - 1);
+      return { startYear, endYear };
     }
 
     function buildArchiveURL(lat, lon, start, end) {
-      // daily precipitation_sum includes rain + snow water equivalent
       const url = new URL('https://archive-api.open-meteo.com/v1/archive');
       url.searchParams.set('latitude', lat);
       url.searchParams.set('longitude', lon);
@@ -192,22 +281,37 @@
       return url.toString();
     }
 
-    function lastCompleteYears(n) {
-      const endYear = new Date().getFullYear() - 1; // exclude incomplete current year
-      const startYear = endYear - (n - 1);
-      return { startYear, endYear };
-    }
-
     async function run(query, month, day, nYears, thresholdMm) {
       resultsEl.style.display = 'none';
+      hideCandidatePicker();
       statusEl.textContent = 'Looking up coordinates…';
       try {
-        const loc = await geocode(query);
-        statusEl.textContent = `Found ${loc.name}. Fetching historical daily precipitation…`;
+        const candidates = await geocodeMulti(query);
+        if (!candidates || candidates.length === 0) {
+          throw new Error('No matching location found. Try adding state/country (e.g., "Alta, Utah").');
+        }
+
+        // If more than one, ask user to pick
+        let chosen = candidates[0];
+        if (candidates.length > 1) {
+          showCandidatePicker(candidates);
+          statusEl.textContent = 'Multiple locations found — pick one.';
+          await new Promise((resolve) => {
+            useCandidateBtn.onclick = () => {
+              const idx = parseInt(candidateSelect.value, 10) || 0;
+              chosen = candidates[idx];
+              hideCandidatePicker();
+              resolve();
+            };
+          });
+        }
+
+        const loc = { lat: chosen.latitude, lon: chosen.longitude, name: [chosen.name, chosen.admin1, chosen.country].filter(Boolean).join(', ') };
+        statusEl.textContent = `Using ${loc.name}. Fetching historical daily precipitation…`;
 
         const { startYear, endYear } = lastCompleteYears(nYears);
         const start = `${startYear}-${month}-01`;
-        const end = `${endYear}-${month}-31`; // API will clamp to month length
+        const end = `${endYear}-${month}-31`;
         const url = buildArchiveURL(loc.lat, loc.lon, start, end);
 
         const res = await fetch(url);
@@ -252,7 +356,7 @@
         statusEl.innerHTML = `<span class="ok">Done:</span> ${loc.name} • ${month}/${day} • ${startYear}–${endYear} • threshold ≥ ${thresholdMm} mm`;
         resultsEl.style.display = 'grid';
       } catch (err) {
-        statusEl.innerHTML = `<span class="err">Error:</span> ${err.message}`;
+        statusEl.innerHTML = `<span class="err">${err.message}</span>`;
         resultsEl.style.display = 'none';
       }
     }
@@ -267,10 +371,11 @@
     });
 
     document.getElementById('demo').addEventListener('click', () => {
-      document.getElementById('place').value = 'Snowbird, Utah';
+      document.getElementById('place').value = 'Snowbird';
       monthSel.value = '07'; repopulateDays(); daySel.value = '25';
       document.getElementById('years').value = '20';
       document.getElementById('threshold').value = '0.1';
+      biasUS.checked = true; biasUtah.checked = true;
       document.getElementById('go').click();
     });
   </script>
